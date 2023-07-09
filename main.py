@@ -53,7 +53,7 @@ def main(config):
     elif config.mode == "test":
         # load valid data
         data_te = dataset(
-            data_dump_folder=config.data_dump_folder, indim=config.indim, freeze_data=True, id=config.cat_id, require_normal=require_normal,
+            data_dump_folder=config.data_dump_folder, indim=config.indim, freeze_data=False, id=config.cat_id, require_normal=require_normal,
             num_pts=config.num_pts, mode="test", jitter_type=config.pc_jitter_type)
         data_loader_te = DataLoader(
             dataset=data_te,
@@ -67,7 +67,7 @@ def main(config):
     elif config.mode == "vis":
         # load valid data
         data_te = dataset(
-            data_dump_folder=config.data_dump_folder, indim=config.indim, freeze_data=True, id=config.cat_id, require_normal=require_normal,
+            data_dump_folder=config.data_dump_folder, indim=config.indim, freeze_data=False, id=config.cat_id, require_normal=require_normal,
             num_pts=config.num_pts, mode="test", jitter_type=config.pc_jitter_type)
         data_loader_te = DataLoader(
             dataset=data_te,

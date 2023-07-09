@@ -26,7 +26,7 @@ class KoutLayer(nn.Module):
         else:
             self.linear = None
 
-    def forward(self, x, context_vec=None, return_att=False):
+    def forward(self, x, context_vec=None, return_att=False, return_x=False):
         
         attention = self.conv_att(x)
         a = torch.softmax(attention, dim=1) # BKN1
@@ -47,7 +47,9 @@ class KoutLayer(nn.Module):
         if self.linear is not None:
             mean = F.relu(self.norm(self.linear(mean)))
 
-        if return_att:
+        if return_att and return_x:
+            return mean, a, x
+        elif return_att:
             return mean, a
         else:
             return mean 
@@ -251,7 +253,7 @@ class AcneKpEncoder(nn.Module):
             )
 
 
-    def forward(self, xyz, att_aligner=None, return_att=False):
+    def forward(self, xyz, att_aligner=None, return_att=False, return_x=False):
 
         B = xyz.shape[0]
         x = self.layers[:-1](xyz)# BCK1
@@ -260,8 +262,11 @@ class AcneKpEncoder(nn.Module):
             a_norm = att_aligner / torch.clamp(pai, min=1e-3)
             x = x[:, :, None] # BC1N1
             mean = torch.sum(x * a_norm, dim=3) # B*C*num_group*1
-            ret = (mean, att_aligner)
+            if return_x:
+                ret = (mean, att_aligner, x)
+            else:
+                ret = (mean, att_aligner)
         else:
-            ret = self.layers[-1](x, return_att=return_att) 
+            ret = self.layers[-1](x, return_att=return_att, return_x=return_x)
         
         return ret

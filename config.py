@@ -26,7 +26,7 @@ main_arg.add_argument("--mode", type=str,
                       help="Run mode")
 
 main_arg.add_argument("--data_dump_folder", type=str,
-                      default="data_dump",
+                      default="data",
                       help="data_dump_folder saving the data")
 
 main_arg.add_argument("--pc_jitter_type", type=str,
@@ -53,6 +53,17 @@ main_arg.add_argument("--pt_file", type=str,
 main_arg.add_argument("--feat_net", type=str,
                       default="AcneKpEncoder",
                       help="Encoder")
+main_arg.add_argument("--render_mesh",
+                      default=False,
+                      action="store_true")
+main_arg.add_argument("--only_highest",
+                      default=False,
+                      action="store_true",
+                      help="Correlation")
+main_arg.add_argument("--using_feature",
+                      default=False,
+                      action="store_true",
+                      help="Similarity with feature")
 
 # ----------------------------------------
 # Arguments for model 

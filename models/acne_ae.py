@@ -4,6 +4,7 @@ import copy
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+import open3d as o3d
 from model_utils.decode_utils import ChamferLoss, KpDecoder, MlpPointsFC
 from acne_utils import AcneKpEncoder
 from geom_torch import trans_pc_random, procruste_pose, get_rots 
@@ -55,9 +56,9 @@ class AcneAe(nn.Module):
 
     def forward_test(self, in_dict, vis_fn=None):
         data = in_dict["data"]
-        mode = in_dict["mode"]
-        writer = in_dict["writer"]
-        iter_idx = in_dict["iter_idx"]
+        # mode = in_dict["mode"]
+        # writer = in_dict["writer"]
+        # iter_idx = in_dict["iter_idx"]
         pc = data["pc"]
 
         rt = None
@@ -86,7 +87,7 @@ class AcneAe(nn.Module):
         if self.config.pose_block == "procruste":
             if self.ref_kp_type != "None":
                 if self.ref_kp_type.startswith("mlp"):
-                    kps_ref= self.ref_kp_net(gc.reshape(gc.shape[0], -1))
+                    kps_ref = self.ref_kp_net(gc.reshape(gc.shape[0], -1))
                     kps_ref = kps_ref - kps_ref.mean(dim=2, keepdim=True)
                 else:
                     raise NotImplementedError
@@ -220,7 +221,7 @@ class AcneAe(nn.Module):
         if self.config.loss_beta > 0:
             # consider two views
             beta = gc[:, 3:]
-            beta0 = beta[:bs] 
+            beta0 = beta[:bs]
             beta1 = beta[bs:]
             loss_beta = F.mse_loss(beta0, beta1)
             if report:
@@ -241,10 +242,12 @@ class AcneAe(nn.Module):
     def vis_single(self, in_dict, vis_dump_dir):
         # rotate input and show the decomposition and reconstruction 
         data = in_dict["data"]
-        mode = in_dict["mode"]
-        writer = in_dict["writer"]
-        iter_idx = in_dict["iter_idx"]
+        # mode = in_dict["mode"]
+        # writer = in_dict["writer"]
+        # iter_idx = in_dict["iter_idx"]
         pc = data["pc"]
+        img_path = data["path"][0]
+        # print(img_path)
 
         assert pc.shape[2] == self.config.indim
         x_can = pc.transpose(2, 1)
@@ -289,12 +292,45 @@ class AcneAe(nn.Module):
             loss_chamfer = self.chamfer_loss(x.transpose(2, 1), y)
             print(f"R: {R}; loss: {loss_chamfer}")
 
-            # Reconstruction in cannical pose
+            # Reconstruction in canonical pose
             if not os.path.exists(vis_fn_recon):
                 os.makedirs(vis_fn_recon)
             vis_fn = os.path.join(vis_fn_recon, f"{idx}".zfill(3)) 
             vis_recon(pc_recons, vis_fn)
-        
+
+            if self.config.render_mesh and idx == 1:
+                # Render corresponding mesh
+                pts = []
+                for i, patch in enumerate(pc_recons):
+                    pts_cur = patch[0].transpose(1, 0).cpu().numpy()
+                    pts += [pts_cur]
+                pts = np.concatenate(pts, axis=0)
+                print(pts.shape)
+                pcd = o3d.geometry.PointCloud()
+                pcd.points = o3d.utility.Vector3dVector(pts)
+
+                # Alpha shapes
+                if "car" not in vis_dump_dir:
+                    alpha = 0.05
+                else:
+                    alpha = 0.25
+                alpha_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
+
+                # pcd.estimate_normals()
+                # pcd.orient_normals_consistent_tangent_plane(4)
+
+                # Ball pivoting
+                # distances = pcd.compute_nearest_neighbor_distance()
+                # avg_dist = np.mean(distances)
+                # radius = 5 * avg_dist
+                # bpa_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, o3d.utility.DoubleVector([radius, radius * 2]))
+
+                # Poisson
+                # poisson_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=15)[0]
+                # bbox = pcd.get_axis_aligned_bounding_box()
+                # poisson_mesh = poisson_mesh.crop(bbox)
+                o3d.io.write_triangle_mesh(os.path.join(vis_fn_recon, f"recon_mesh.ply"), alpha_mesh)
+
         # generate gif
         gif_fns = [vis_fn_decomp, vis_fn_recon]
         
@@ -305,6 +341,90 @@ class AcneAe(nn.Module):
             os.system(cmd)
             cmd = "rm {}".format(png_fn)
             os.system(cmd)
+
+        for img_fn in os.listdir(img_path):
+            if '.png' in img_fn:
+                # print(os.path.join(img_path, img_fn))
+                cmd = "cp {} {}".format(os.path.join(img_path, img_fn), gif_fn)
+                os.system(cmd)
+
+    def vis_pair(self, in_dict, prev_in_dict, vis_dump_dir):
+        # rotate input and show the correlation between the two
+        data = in_dict["data"]
+        pc = data["pc"]
+
+        prev_data = prev_in_dict["data"]
+        prev_pc = prev_data["pc"]
+
+        assert pc.shape[2] == self.config.indim and prev_pc.shape[2] == self.config.indim
+        x = pc
+        prev_x = prev_pc
+
+        # png
+        vis_fn_pair = os.path.join(vis_dump_dir, "pair")
+        if not os.path.exists(vis_fn_pair):
+            os.makedirs(vis_fn_pair)
+
+        # Canonicalize
+        att_aligner = None
+        if self.aligner is not None:
+            with torch.no_grad():
+                self.aligner.eval()
+                x_, ret_aligner = self.aligner.forward_align(x, mode="vis")
+                prev_x_, prev_ret_aligner = self.aligner.forward_align(prev_x, mode="vis")
+                att_aligner = ret_aligner["att_aligner"]
+                prev_att_aligner = prev_ret_aligner["att_aligner"]
+
+                x = x_.transpose(2, 1)
+                prev_x = prev_x_.transpose(2, 1)
+
+        input_feat = x[..., None]
+        gc_att = self.encoder(input_feat, att_aligner=att_aligner, return_att=True, return_x=True)  # BCK1, B1GN1
+        gc, att, feat = gc_att
+
+        prev_input_feat = prev_x[..., None]
+        prev_gc_att = self.encoder(prev_input_feat, att_aligner=prev_att_aligner, return_att=True, return_x=True)  # BCK1, B1GN1
+        prev_gc, prev_att, prev_feat = prev_gc_att
+
+        # print('shape: ', gc.shape, att.shape, feat.shape)
+        # torch.Size([1, 128, 10, 1]) torch.Size([1, 1, 10, 3072, 1]) torch.Size([1, 128, 1, 3072, 1])
+        for idx in range(10):
+            point_id = np.random.randint(0, 3072)
+
+            if self.config.using_feature:
+                point_feat = feat[0, :, 0, point_id, 0]
+                prev_feats = prev_feat[0, :, 0, :, 0]
+                similarity = torch.matmul(point_feat, prev_feats) / torch.norm(point_feat) / torch.norm(prev_feats, dim=0)
+            else:
+                point_att = att[0, 0, :, point_id, 0]
+                prev_atts = prev_att[0, 0, :, :, 0]
+                similarity = torch.matmul(point_att, prev_atts) / torch.norm(point_att) / torch.norm(prev_atts, dim=0)
+
+            if self.config.only_highest:
+                max_point = torch.argmax(similarity)
+                similarity = torch.zeros_like(similarity)
+                similarity[max_point] = 1.0
+            vis_relation(x, prev_x, point_id, similarity, idx, vis_fn_pair)
+
+        # # generate gif
+        # gif_fn = vis_fn_pair
+        # for idx in range(10):
+        #     prev_png_fn = os.path.join(gif_fn, f"*_prev_relation_{idx}.png")
+        #     prev_animation_fn = os.path.join(gif_fn, f"prev_relation_{idx}.gif")
+        #
+        #     cmd = "convert -delay 10 -loop 0 {} {}".format(prev_png_fn, prev_animation_fn)
+        #     os.system(cmd)
+        #     cmd = "rm {}".format(prev_png_fn)
+        #     os.system(cmd)
+        #
+        #     png_fn = os.path.join(gif_fn, f"*_relation_{idx}.png")
+        #     animation_fn = os.path.join(gif_fn, f"relation_{idx}.gif")
+        #
+        #
+        #     cmd = "convert -delay 10 -loop 0 {} {}".format(png_fn, animation_fn)
+        #     os.system(cmd)
+        #     cmd = "rm {}".format(png_fn)
+        #     os.system(cmd)
 
 
 class AcneAeAligner(AcneAe):
@@ -346,7 +466,7 @@ class AcneAeAligner(AcneAe):
         kps = pose_local.squeeze(-1)
 
         # Alignment
-        kps_ref= self.ref_kp_net(gc.reshape(gc.shape[0], -1))
+        kps_ref = self.ref_kp_net(gc.reshape(gc.shape[0], -1))
         kps_ref = kps_ref - kps_ref.mean(dim=2, keepdim=True)
         R_can, T_can = procruste_pose(kps, kps_ref, std_noise=0) # kps_ref = R * kpsi  + T
 

@@ -189,6 +189,8 @@ class Network(object):
                 # move tensor into cuda
                 if self.config.use_cuda:
                     for key in data.keys():
+                        if key == "path":
+                            continue
                         data[key] = data[key].cuda()
 
                 # inputs and labels
@@ -283,6 +285,8 @@ class Network(object):
             # move tensor into cuda
             if self.config.use_cuda:
                 for key in data.keys():
+                    if key == "path":
+                        continue
                     data[key] = data[key].cuda()
             in_dict = {} 
             in_dict["data"] = data
@@ -347,15 +351,18 @@ class Network(object):
             if self.config.vis_idx > 0:
                 vis_idx = [self.config.vis_idx]
             else:
-                vis_idx = [i for i in range(1, 4)]
+                vis_idx = [i for i in range(1, 9)]
 
-            for data in tqdm(data_loader, desc=prefix): 
+            prev_data = None
+            for data in tqdm(data_loader, desc=prefix):
                 idx += 1
                 if idx not in vis_idx:
                     continue
                 # move tensor into cuda
                 if self.config.use_cuda:
                     for key in data.keys():
+                        if key == "path":
+                            continue
                         data[key] = data[key].cuda()
                 in_dict = {} 
                 in_dict["data"] = data
@@ -369,5 +376,13 @@ class Network(object):
 
                 with torch.no_grad():
                     self.model.vis_single(in_dict, vis_dir)
+                    print(111)
+                    if prev_data is not None:
+                        prev_in_dict = {}
+                        prev_in_dict["data"] = prev_data
+                        self.model.vis_pair(in_dict, prev_in_dict, vis_dir)
+                        print(222)
+
+                prev_data = data
 #
 # network.py ends here
