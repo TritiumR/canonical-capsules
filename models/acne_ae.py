@@ -279,6 +279,7 @@ class AcneAe(nn.Module):
                     x = x_.transpose(2, 1)
 
             input_feat = x[..., None]
+
             gc_att = self.encoder(input_feat, att_aligner=att_aligner, return_att=True) # BCK1, B1GN1
             gc, att = gc_att
 
@@ -351,14 +352,12 @@ class AcneAe(nn.Module):
     def vis_pair(self, in_dict, prev_in_dict, vis_dump_dir):
         # rotate input and show the correlation between the two
         data = in_dict["data"]
-        pc = data["pc"]
+        x = data["pc"]
 
         prev_data = prev_in_dict["data"]
-        prev_pc = prev_data["pc"]
+        prev_x = prev_data["pc"]
 
-        assert pc.shape[2] == self.config.indim and prev_pc.shape[2] == self.config.indim
-        x = pc
-        prev_x = prev_pc
+        assert x.shape[2] == self.config.indim and prev_x.shape[2] == self.config.indim
 
         # png
         vis_fn_pair = os.path.join(vis_dump_dir, "pair")
@@ -388,8 +387,14 @@ class AcneAe(nn.Module):
 
         # print('shape: ', gc.shape, att.shape, feat.shape)
         # torch.Size([1, 128, 10, 1]) torch.Size([1, 1, 10, 3072, 1]) torch.Size([1, 128, 1, 3072, 1])
+        # rotate the point cloud
+        Rs = get_rots(self.config.indim)
+        R = Rs[5]
+        x = torch.matmul(torch.from_numpy(R).to(x.device), x)
+        prev_x = torch.matmul(torch.from_numpy(R).to(prev_x.device), prev_x)
+
         for idx in range(10):
-            point_id = np.random.randint(0, 3072)
+            point_id = np.random.randint(0, self.config.num_pts)
 
             if self.config.using_feature:
                 point_feat = feat[0, :, 0, point_id, 0]
@@ -404,6 +409,7 @@ class AcneAe(nn.Module):
                 max_point = torch.argmax(similarity)
                 similarity = torch.zeros_like(similarity)
                 similarity[max_point] = 1.0
+
             vis_relation(x, prev_x, point_id, similarity, idx, vis_fn_pair)
 
         # # generate gif
@@ -468,7 +474,7 @@ class AcneAeAligner(AcneAe):
         # Alignment
         kps_ref = self.ref_kp_net(gc.reshape(gc.shape[0], -1))
         kps_ref = kps_ref - kps_ref.mean(dim=2, keepdim=True)
-        R_can, T_can = procruste_pose(kps, kps_ref, std_noise=0) # kps_ref = R * kpsi  + T
+        R_can, T_can = procruste_pose(kps, kps_ref, std_noise=0) # kps_ref = R * kps + T
 
         x_can = torch.matmul(R_can, x) + T_can
         kps_can = torch.matmul(R_can, kps) + T_can

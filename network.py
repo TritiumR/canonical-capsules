@@ -351,7 +351,7 @@ class Network(object):
             if self.config.vis_idx > 0:
                 vis_idx = [self.config.vis_idx]
             else:
-                vis_idx = [i for i in range(1, 9)]
+                vis_idx = [i for i in range(1, 20)]
 
             prev_data = None
             for data in tqdm(data_loader, desc=prefix):
@@ -376,13 +376,20 @@ class Network(object):
 
                 with torch.no_grad():
                     self.model.vis_single(in_dict, vis_dir)
-                    print(111)
+                    print("vis single done")
                     if prev_data is not None:
                         prev_in_dict = {}
                         prev_in_dict["data"] = prev_data
                         self.model.vis_pair(in_dict, prev_in_dict, vis_dir)
-                        print(222)
+                        print("vis pair done")
 
                 prev_data = data
+
+    def load_checkpoint(self):
+        if self.config.pt_file == "":
+            self._restore(self.checkpoint_file)
+        else:
+            self._restore(self.config.pt_file)
+
 #
 # network.py ends here
